@@ -30,6 +30,7 @@ interface AuthContextValue {
   refreshProfile: () => Promise<void>
   hasRole: (role: UserRole) => boolean
   hasMinRank: (rank: number) => boolean
+  isAuthenticated: boolean
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -79,6 +80,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           last_name: data.last_name,
           avatar_url: data.avatar_url,
         })
+      } else {
+        setProfile(null)
       }
     } catch {
       setProfile(null)
@@ -186,6 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const role = useMemo<UserRole | null>(() => profile?.role_name ?? null, [profile])
   const roleRank = useMemo(() => (role ? USER_ROLES[role].rank : 0), [role])
   const organizationId = useMemo(() => profile?.organization_id ?? null, [profile])
+  const isAuthenticated = Boolean(user || session)
 
   const hasRole = useCallback(
     (r: UserRole) => role === r,
@@ -206,6 +210,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       roleRank,
       organizationId,
       isLoading,
+      isAuthenticated,
       error,
       signIn,
       signInWithGoogle,

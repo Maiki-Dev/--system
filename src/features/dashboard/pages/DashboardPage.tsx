@@ -7,7 +7,7 @@ import {
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from 'date-fns'
 import { PageHeader, PageAction } from '@/shared/components/PageHeader'
 import { KpiCard, formatCurrency, formatNumber } from '@/shared/components/KpiCard'
-import { LoadingGrid, ErrorState } from '@/shared/components/EmptyState'
+import { LoadingGrid, ErrorState, EmptyState } from '@/shared/components/EmptyState'
 import {
   Card, CardContent, CardHeader, CardTitle, CardDescription,
 } from '@/components/ui/card'
@@ -29,7 +29,26 @@ function useDashboardStats() {
   return useQuery({
     queryKey: ['dashboard-stats', organizationId],
     queryFn: async () => {
-      const org = organizationId!
+      if (!organizationId) {
+        return {
+          totalBuildings: 0,
+          totalApartments: 0,
+          totalResidents: 0,
+          monthlyRevenue: 0,
+          outstanding: 0,
+          overdue: 0,
+          todayIncome: 0,
+          openComplaints: 0,
+          maintRequests: 0,
+          todayVisitors: 0,
+          totalParking: 0,
+          parkingOccupied: 0,
+          parkingPct: 0,
+          totalVehicles: 0,
+        }
+      }
+
+      const org = organizationId
       const now = new Date()
       const thisMonth = { start: startOfMonth(now).toISOString(), end: endOfMonth(now).toISOString() }
 
@@ -86,7 +105,8 @@ function useMonthlyRevenue() {
   return useQuery({
     queryKey: ['dashboard-monthly-rev', organizationId],
     queryFn: async () => {
-      const org = organizationId!
+      if (!organizationId) return []
+      const org = organizationId
       const start = subMonths(startOfMonth(new Date()), 5)
       const months = eachMonthOfInterval({ start, end: endOfMonth(new Date()) })
       const labels = months.map((m) => format(m, 'yyyy-MM'))
@@ -119,7 +139,8 @@ function useComplaintStats() {
   return useQuery({
     queryKey: ['dashboard-complaints', organizationId],
     queryFn: async () => {
-      const { data } = await supabase.from('complaints').select('status').eq('organization_id', organizationId!)
+      if (!organizationId) return []
+      const { data } = await supabase.from('complaints').select('status').eq('organization_id', organizationId)
       const all = (data ?? []) as Array<{ status: string }>
       const groups = all.reduce<Record<string, number>>((acc, c) => {
         acc[c.status] = (acc[c.status] ?? 0) + 1
@@ -142,7 +163,8 @@ function useApartmentStatus() {
   return useQuery({
     queryKey: ['dashboard-apt-status', organizationId],
     queryFn: async () => {
-      const { data } = await supabase.from('apartments').select('status').eq('organization_id', organizationId!)
+      if (!organizationId) return []
+      const { data } = await supabase.from('apartments').select('status').eq('organization_id', organizationId)
       const all = (data ?? []) as Array<{ status: string }>
       const count = (s: string) => all.filter((r) => r.status === s).length
       return [
@@ -192,7 +214,24 @@ export default function DashboardPage() {
     )
   }
 
-  const s = stats.data!
+  const s = stats.data ?? {
+    totalBuildings: 0,
+    totalApartments: 0,
+    totalResidents: 0,
+    monthlyRevenue: 0,
+    outstanding: 0,
+    overdue: 0,
+    todayIncome: 0,
+    openComplaints: 0,
+    maintRequests: 0,
+    todayVisitors: 0,
+    totalParking: 0,
+    parkingOccupied: 0,
+    parkingPct: 0,
+    totalVehicles: 0,
+  }
+
+  const hasData = Boolean(stats.data && (stats.data.totalBuildings || stats.data.totalApartments || stats.data.totalResidents || stats.data.totalVehicles))
 
   return (
     <div className="flex flex-col gap-6">
@@ -203,6 +242,14 @@ export default function DashboardPage() {
         actions={<PageAction label="Жагсаалт татаж авах" icon={ArrowUpRight} variant="outline" />}
         breadcrumbs={[{ label: 'Хянах самбар' }]}
       />
+
+      {!hasData && (
+        <EmptyState
+          title="Одоогоор өгөгдөл байхгүй байна"
+          description="Таны байгууллагад холбогдсон барилга, орон сууц, эсвэл төлбөрийн мэдээлэл хараахан үүсээгүй байна."
+          icon={BarChart3}
+        />
+      )}
 
       {/* KPI Row 1 — Building & Residents */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

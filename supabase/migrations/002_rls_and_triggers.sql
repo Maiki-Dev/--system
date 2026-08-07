@@ -16,7 +16,7 @@ $$ LANGUAGE plpgsql VOLATILE;
 
 DO $$
 DECLARE
-    t RECORD;
+    t TEXT;
     tables TEXT[] := ARRAY[
         'organizations','profiles','buildings','apartments','residents',
         'family_members','vehicles','parking_slots','parking_logs',
@@ -45,6 +45,8 @@ END $$;
 -- ============================================================
 -- AUTH HOOK: Auto-create profile + assign default role on signup
 -- ============================================================
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
+
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -57,14 +59,19 @@ BEGIN
     v_first_name := COALESCE(NEW.raw_user_meta_data->>'first_name', '');
     v_last_name  := COALESCE(NEW.raw_user_meta_data->>'last_name', '');
 
-    -- Create default organization for first-ever signup
-    IF NOT EXISTS (SELECT 1 FROM public.organizations LIMIT 1) THEN
+    -- Use an existing organization if present; otherwise create one.
+    SELECT id INTO v_org_id
+    FROM public.organizations
+    ORDER BY created_at, id
+    LIMIT 1;
+
+    IF v_org_id IS NULL THEN
         INSERT INTO public.organizations (name)
         VALUES ('Default Organization')
         RETURNING id INTO v_org_id;
     END IF;
 
-    -- Create profile row
+    -- Create or update profile row and link it to an organization.
     INSERT INTO public.profiles (
         id, organization_id, first_name, last_name, email, phone,
         last_login_at
@@ -76,22 +83,35 @@ BEGIN
         NEW.email,
         NEW.phone,
         NOW()
-    );
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        organization_id = EXCLUDED.organization_id,
+        first_name = EXCLUDED.first_name,
+        last_name = EXCLUDED.last_name,
+        email = EXCLUDED.email,
+        phone = EXCLUDED.phone,
+        last_login_at = EXCLUDED.last_login_at;
 
-    -- First user ever becomes super_admin + org_admin; otherwise resident
+    -- Backfill existing profiles that were created without an organization.
+    UPDATE public.profiles
+    SET organization_id = v_org_id
+    WHERE id = NEW.id
+      AND (organization_id IS NULL OR organization_id <> v_org_id);
+
+    -- First user ever becomes org_admin; otherwise resident.
     IF (SELECT COUNT(*) FROM auth.users) <= 1 THEN
         SELECT id INTO v_org_admin_role_id FROM public.roles WHERE name = 'org_admin';
         IF v_org_admin_role_id IS NOT NULL AND v_org_id IS NOT NULL THEN
             INSERT INTO public.organization_members (organization_id, profile_id, role_id)
             VALUES (v_org_id, NEW.id, v_org_admin_role_id)
-            ON CONFLICT DO NOTHING;
+            ON CONFLICT (organization_id, profile_id) DO NOTHING;
         END IF;
     ELSE
         SELECT id INTO v_resident_role_id FROM public.roles WHERE name = 'resident';
         IF v_resident_role_id IS NOT NULL AND v_org_id IS NOT NULL THEN
             INSERT INTO public.organization_members (organization_id, profile_id, role_id)
             VALUES (v_org_id, NEW.id, v_resident_role_id)
-            ON CONFLICT DO NOTHING;
+            ON CONFLICT (organization_id, profile_id) DO NOTHING;
         END IF;
     END IF;
 
