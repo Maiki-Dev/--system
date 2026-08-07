@@ -25,6 +25,7 @@ export default function LoginPage() {
   const [showPwd, setShowPwd] = useState(false)
   const [loading, setLoading] = useState(false)
   const [magicLoading, setMagicLoading] = useState(false)
+  const [magicSent, setMagicSent] = useState(false)
 
   const form = useForm<Form>({
     resolver: zodResolver(schema),
@@ -51,12 +52,22 @@ export default function LoginPage() {
       form.setError('email', { message: 'Magic Link илгээх өмнө имэйл хаягаа оруулна уу' })
       return
     }
+    if (magicSent) {
+      toast.info('Magic Link аль хэдийн илгээгдсэн. Дахин илгээхийн тулд түр хүлээнэ үү.')
+      return
+    }
+
     setMagicLoading(true)
     try {
       await signInWithMagicLink(email)
+      setMagicSent(true)
       toast.success(`Magic Link ${email} руу илгээгдлээ`)
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Magic Link илгээж чадсангүй')
+      const message = e instanceof Error ? e.message : 'Magic Link илгээж чадсангүй'
+      toast.error(message)
+      if (message.toLowerCase().includes('rate') || message.toLowerCase().includes('limit')) {
+        setMagicSent(true)
+      }
     } finally {
       setMagicLoading(false)
     }
@@ -154,16 +165,16 @@ export default function LoginPage() {
             эсвэл
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        {/* <div className="grid grid-cols-2 gap-2">
           <Button type="button" variant="outline" onClick={loginWithGoogle} className="w-full">
             <CircleDot data-icon="inline-start" className="size-4" />
             Google
           </Button>
-          <Button type="button" variant="outline" onClick={sendMagicLink} disabled={magicLoading} className="w-full">
+          <Button type="button" variant="outline" onClick={sendMagicLink} disabled={magicLoading || magicSent} className="w-full">
             <Wand2 data-icon="inline-start" className="size-4" />
-            {magicLoading ? 'Илгээж байна…' : 'Magic Link'}
+            {magicLoading ? 'Илгээж байна…' : magicSent ? 'Илгээсэн' : 'Magic Link'}
           </Button>
-        </div>
+        </div> */}
       </div>
 
       <p className="text-center text-sm text-muted-foreground">

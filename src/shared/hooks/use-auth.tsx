@@ -126,8 +126,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null)
     const { error: e } = await supabase.auth.signInWithPassword({ email, password })
     if (e) {
-      setError(e)
-      throw e
+      const message = e.message || 'Нэвтрэхэд алдаа гарлаа.'
+      const normalized = {
+        ...e,
+        message,
+      } as AuthError
+      setError(normalized)
+      throw new Error(message)
     }
   }, [])
 
