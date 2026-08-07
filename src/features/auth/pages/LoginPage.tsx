@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Mail, Lock, ArrowRight, CircleDot, Wand2, EyeOff, Eye } from 'lucide-react'
+import { Mail, Lock, ArrowRight, EyeOff, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel, FieldError } from '@/components/ui/field'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
@@ -20,12 +20,10 @@ const schema = z.object({
 type Form = z.infer<typeof schema>
 
 export default function LoginPage() {
-  const { signIn, signInWithGoogle, signInWithMagicLink } = useAuth()
+  const { signIn } = useAuth()
   const navigate = useNavigate()
   const [showPwd, setShowPwd] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [magicLoading, setMagicLoading] = useState(false)
-  const [magicSent, setMagicSent] = useState(false)
 
   const form = useForm<Form>({
     resolver: zodResolver(schema),
@@ -45,41 +43,6 @@ export default function LoginPage() {
       setLoading(false)
     }
   })
-
-  const sendMagicLink = async () => {
-    const email = form.getValues('email')
-    if (!z.string().email().safeParse(email).success) {
-      form.setError('email', { message: 'Magic Link илгээх өмнө имэйл хаягаа оруулна уу' })
-      return
-    }
-    if (magicSent) {
-      toast.info('Magic Link аль хэдийн илгээгдсэн. Дахин илгээхийн тулд түр хүлээнэ үү.')
-      return
-    }
-
-    setMagicLoading(true)
-    try {
-      await signInWithMagicLink(email)
-      setMagicSent(true)
-      toast.success(`Magic Link ${email} руу илгээгдлээ`)
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Magic Link илгээж чадсангүй'
-      toast.error(message)
-      if (message.toLowerCase().includes('rate') || message.toLowerCase().includes('limit')) {
-        setMagicSent(true)
-      }
-    } finally {
-      setMagicLoading(false)
-    }
-  }
-
-  const loginWithGoogle = async () => {
-    try {
-      await signInWithGoogle()
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Google-ээр нэвтрэхэд алдаа')
-    }
-  }
 
   const rootError = form.formState.errors.root?.message
 
@@ -165,16 +128,7 @@ export default function LoginPage() {
             эсвэл
           </span>
         </div>
-        {/* <div className="grid grid-cols-2 gap-2">
-          <Button type="button" variant="outline" onClick={loginWithGoogle} className="w-full">
-            <CircleDot data-icon="inline-start" className="size-4" />
-            Google
-          </Button>
-          <Button type="button" variant="outline" onClick={sendMagicLink} disabled={magicLoading || magicSent} className="w-full">
-            <Wand2 data-icon="inline-start" className="size-4" />
-            {magicLoading ? 'Илгээж байна…' : magicSent ? 'Илгээсэн' : 'Magic Link'}
-          </Button>
-        </div> */}
+        {/* Social auth options are currently disabled to avoid repeated email-provider calls. */}
       </div>
 
       <p className="text-center text-sm text-muted-foreground">

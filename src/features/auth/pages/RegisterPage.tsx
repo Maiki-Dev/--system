@@ -44,7 +44,8 @@ export default function RegisterPage() {
       toast.success('Бүртгэл үүслээ. Имэйл баталгаажуулна уу.')
       setTimeout(() => navigate('/dashboard', { replace: true }), 1500)
     } catch (e: unknown) {
-      form.setError('root', { message: e instanceof Error ? e.message : 'Бүртгүүлэхэд алдаа' })
+      const message = e instanceof Error ? e.message : 'Бүртгүүлэхэд алдаа'
+      form.setError('root', { message })
     } finally {
       setLoading(false)
     }

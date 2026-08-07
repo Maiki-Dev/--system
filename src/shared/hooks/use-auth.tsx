@@ -33,6 +33,21 @@ interface AuthContextValue {
   isAuthenticated: boolean
 }
 
+function normalizeAuthError(error: unknown, fallback: string) {
+  const rawMessage = error instanceof Error ? error.message : typeof error === 'string' ? error : fallback
+  const message = rawMessage.toLowerCase()
+
+  if (message.includes('email signups are disabled') || message.includes('signups are disabled') || message.includes('sign up is disabled')) {
+    return 'Имэйлээр бүртгүүлэх боломжгүй байна. Google-ээр нэвтрэх буюу админтай холбогдоно уу.'
+  }
+
+  if (message.includes('rate limit') || message.includes('too many requests')) {
+    return 'Имэйл илгээхэд түр хүлээнэ үү. Дараа дахин оролдоно уу.'
+  }
+
+  return rawMessage || fallback
+}
+
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -126,7 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null)
     const { error: e } = await supabase.auth.signInWithPassword({ email, password })
     if (e) {
-      const message = e.message || 'Нэвтрэхэд алдаа гарлаа.'
+      const message = normalizeAuthError(e, 'Нэвтрэхэд алдаа гарлаа.')
       const normalized = {
         ...e,
         message,
@@ -155,8 +170,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       options: { shouldCreateUser: false },
     })
     if (e) {
-      setError(e)
-      throw e
+      const message = normalizeAuthError(e, 'Magic Link илгээж чадсангүй.')
+      const normalized = {
+        ...e,
+        message,
+      } as AuthError
+      setError(normalized)
+      throw new Error(message)
     }
   }, [])
 
@@ -168,8 +188,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       options: { data: { first_name: firstName, last_name: lastName } },
     })
     if (e) {
-      setError(e)
-      throw e
+      const message = normalizeAuthError(e, 'Бүртгүүлэхэд алдаа гарлаа.')
+      const normalized = {
+        ...e,
+        message,
+      } as AuthError
+      setError(normalized)
+      throw new Error(message)
     }
     if (data.user) {
       await fetchProfile(data.user.id)
