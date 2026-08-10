@@ -40,9 +40,13 @@ export default function RegisterPage() {
   const onSubmit = form.handleSubmit(async (d) => {
     setLoading(true)
     try {
-      await signUp(d.email, d.password, d.firstName, d.lastName)
-      toast.success('Бүртгэл үүслээ. Имэйл баталгаажуулна уу.')
-      setTimeout(() => navigate('/dashboard', { replace: true }), 1500)
+      const result = await signUp(d.email, d.password, d.firstName, d.lastName)
+      if (result.session) {
+        toast.success('Бүртгэл үүслээ. Та амжилттай нэвтэрлээ.')
+        navigate('/dashboard', { replace: true })
+      } else {
+        toast.success('Бүртгэл үүслээ. Имэйл баталгаажуулна уу.')
+      }
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Бүртгүүлэхэд алдаа'
       form.setError('root', { message })
