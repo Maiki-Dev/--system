@@ -1,6 +1,6 @@
 import { lazy, Suspense, type ComponentType, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -9,36 +9,30 @@ import { Spinner } from '@/components/ui/spinner'
 import type { UserRole } from '@/shared/types'
 import { USER_ROLES } from '@/shared/types'
 
+function logError(e: unknown, scope: string) {
+  const msg =
+    e instanceof Error
+      ? e.message
+      : e && typeof e === 'object' && 'message' in e
+        ? String((e as { message: unknown }).message ?? e)
+        : typeof e === 'string'
+          ? e
+          : JSON.stringify(e)
+  console.error(`[${scope}]`, msg, e)
+}
+
 const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (e) => logError(e, 'Query Error'),
+  }),
+  mutationCache: new MutationCache({
+    onError: (e) => logError(e, 'Mutation Error'),
+  }),
   defaultOptions: {
     queries: {
       staleTime: 30_000,
       retry: 1,
       refetchOnWindowFocus: false,
-      onError: (e: unknown) => {
-        const msg =
-          e instanceof Error
-            ? e.message
-            : e && typeof e === 'object' && 'message' in e
-              ? String((e as { message: unknown }).message ?? e)
-              : typeof e === 'string'
-                ? e
-                : JSON.stringify(e)
-        console.error('[Query Error]', msg, e)
-      },
-    },
-    mutations: {
-      onError: (e: unknown) => {
-        const msg =
-          e instanceof Error
-            ? e.message
-            : e && typeof e === 'object' && 'message' in e
-              ? String((e as { message: unknown }).message ?? e)
-              : typeof e === 'string'
-                ? e
-                : JSON.stringify(e)
-        console.error('[Query Error]', msg, e)
-      },
     },
   },
 })
