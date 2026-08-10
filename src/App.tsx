@@ -15,10 +15,29 @@ const queryClient = new QueryClient({
       staleTime: 30_000,
       retry: 1,
       refetchOnWindowFocus: false,
+      onError: (e: unknown) => {
+        const msg =
+          e instanceof Error
+            ? e.message
+            : e && typeof e === 'object' && 'message' in e
+              ? String((e as { message: unknown }).message ?? e)
+              : typeof e === 'string'
+                ? e
+                : JSON.stringify(e)
+        console.error('[Query Error]', msg, e)
+      },
     },
     mutations: {
       onError: (e: unknown) => {
-        console.error('[Query Error]', e)
+        const msg =
+          e instanceof Error
+            ? e.message
+            : e && typeof e === 'object' && 'message' in e
+              ? String((e as { message: unknown }).message ?? e)
+              : typeof e === 'string'
+                ? e
+                : JSON.stringify(e)
+        console.error('[Query Error]', msg, e)
       },
     },
   },

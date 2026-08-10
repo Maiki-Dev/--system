@@ -562,121 +562,145 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA storage
   GRANT EXECUTE ON FUNCTIONS TO anon, authenticated;
 
 -- ============================================================
--- EXTRA RLS: Tables missed from 003 that still used auth.uid()
--- Override 003's inline RLS with current_profile_id() based ones.
--- 007 already covers: orgs, roles, profiles, org_members, buildings,
--- apartments, residents, family_members, vehicles, parking_slots,
--- parking_logs, visitors, visitor_blacklist, invoices, payments,
--- complaints, work_orders, announcements (inside DO $$ blocks).
--- Still need: notifications, documents (table), complaint_comments,
--- work_order_comments, vote_responses, messages, activity_logs helpers.
+-- BLANKET RLS WIPE (001, 002, 003 inline auth.uid() policies)
+-- Drops all custom RLS policies on known public tables so that
+-- only the 007 policies (current_profile_id() based) remain.
+-- Handles: accounting_*, meeting_*, votes_*, complaint_comments,
+-- work_order_comments, documents (003 inline ones vs ours rename).
 -- ============================================================
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN
+        SELECT schemaname, tablename, policyname
+        FROM pg_policies
+        WHERE schemaname = 'public'
+          AND policyname NOT IN (
+              -- 007 SELECT policy names (allow-listed — keep)
+              'organizations_select','organizations_insert','organizations_update',
+              'roles_select',
+              'profiles_select','profiles_insert_self','profiles_update',
+              'org_members_select','org_members_write',
+              'buildings_select','buildings_write',
+              'apartments_select','apartments_write',
+              'residents_select','residents_write',
+              'family_select','family_write',
+              'vehicles_select','vehicles_write',
+              'parking_slots_select','parking_slots_write',
+              'parking_logs_select','parking_logs_write',
+              'visitors_select','visitors_write',
+              'vb_select','vb_write',
+              'inv_select','inv_write',
+              'pay_select','pay_write',
+              'comp_select','comp_write',
+              'wo_select','wo_write',
+              'ann_select','ann_write',
+              'notifications_own',
+              'doc_select','doc_write',
+              'cmt_complaint','woc_wo','vr_vote','vr_insert','msg_org','msg_insert',
+              -- activity logs (no custom policy in 007 yet, table-by-table GRANT + RLS off handled)
+              'logs_org_admin'
+          )
+          AND tablename NOT IN ('schema_migrations')
+    LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I', r.policyname, r.schemaname, r.tablename);
+    END LOOP;
+END $$;
 
--- ---------- NOTIFICATIONS ----------
-DO $$ BEGIN IF EXISTS (
-    SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='notifications'
-) THEN
-    DROP POLICY IF EXISTS notifications_own ON public.notifications;
-    CREATE POLICY notifications_own ON public.notifications FOR ALL USING (
-        profile_id = public.current_profile_id()
-        OR public.current_user_role_rank() >= 70
-    );
-END IF; END $$;
+-- ---------- ACCOUNTING (missed tables from 003) ----------
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='accounting_categories') THEN
+        DROP POLICY IF EXISTS acct_cat_org ON public.accounting_categories;
+        CREATE POLICY acct_cat_org ON public.accounting_categories FOR ALL USING (
+            public.is_super_admin() OR public.current_user_role_rank() >= 70
+            OR organization_id = public.current_user_organization_id()
+        ) WITH CHECK (
+            (public.is_super_admin() OR public.current_user_role_rank() >= 70)
+            AND organization_id = public.current_user_organization_id()
+        );
+    END IF;
 
--- ---------- DOCUMENTS (public.documents table, NOT storage.objects) ----------
-DO $$ BEGIN IF EXISTS (
-    SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='documents'
-) THEN
-    DROP POLICY IF EXISTS doc_select ON public.documents;
-    CREATE POLICY doc_select ON public.documents FOR SELECT USING (
-        public.is_super_admin()
-        OR (public.current_user_role_rank() >= 30 AND organization_id = public.current_user_organization_id())
-        OR EXISTS (
-            SELECT 1 FROM public.residents r
-            WHERE r.apartment_id = documents.apartment_id
-              AND r.profile_id = public.current_profile_id()
-        )
-    );
-    DROP POLICY IF EXISTS doc_write ON public.documents;
-    CREATE POLICY doc_write ON public.documents FOR ALL USING (
-        public.is_super_admin() OR public.current_user_role_rank() >= 70
-    ) WITH CHECK (
-        (public.is_super_admin() OR public.current_user_role_rank() >= 70)
-        AND organization_id = public.current_user_organization_id()
-    );
-END IF; END $$;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='accounting_transactions') THEN
+        DROP POLICY IF EXISTS acct_tx_org ON public.accounting_transactions;
+        CREATE POLICY acct_tx_org ON public.accounting_transactions FOR SELECT USING (
+            public.is_super_admin() OR public.current_user_role_rank() >= 30
+            OR organization_id = public.current_user_organization_id()
+        );
+        DROP POLICY IF EXISTS acct_tx_write ON public.accounting_transactions;
+        CREATE POLICY acct_tx_write ON public.accounting_transactions FOR ALL USING (
+            public.is_super_admin() OR public.current_user_role_rank() >= 70
+        ) WITH CHECK (
+            (public.is_super_admin() OR public.current_user_role_rank() >= 70)
+            AND organization_id = public.current_user_organization_id()
+        );
+    END IF;
+END $$;
 
--- ---------- COMPLAINT COMMENTS ----------
-DO $$ BEGIN IF EXISTS (
-    SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='complaint_comments'
-) THEN
-    DROP POLICY IF EXISTS cmt_complaint ON public.complaint_comments;
-    CREATE POLICY cmt_complaint ON public.complaint_comments FOR ALL USING (
-        EXISTS (
-            SELECT 1 FROM public.complaints c
-            WHERE c.id = complaint_comments.complaint_id
-              AND (
-                  public.is_super_admin()
-                  OR public.current_user_role_rank() >= 30
-                  OR c.resident_id IN (SELECT r.id FROM public.residents r WHERE r.profile_id = public.current_profile_id())
-              )
-        )
-    );
-END IF; END $$;
+-- ---------- MEETINGS + ATTENDEES ----------
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='meetings') THEN
+        DROP POLICY IF EXISTS meetings_select ON public.meetings;
+        CREATE POLICY meetings_select ON public.meetings FOR SELECT USING (
+            public.is_super_admin()
+            OR organization_id = public.current_user_organization_id()
+        );
+        DROP POLICY IF EXISTS meetings_write ON public.meetings;
+        CREATE POLICY meetings_write ON public.meetings FOR ALL USING (
+            public.is_super_admin() OR public.current_user_role_rank() >= 70
+        ) WITH CHECK (
+            (public.is_super_admin() OR public.current_user_role_rank() >= 70)
+            AND organization_id = public.current_user_organization_id()
+        );
+    END IF;
 
--- ---------- WORK ORDER COMMENTS ----------
-DO $$ BEGIN IF EXISTS (
-    SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='work_order_comments'
-) THEN
-    DROP POLICY IF EXISTS woc_wo ON public.work_order_comments;
-    CREATE POLICY woc_wo ON public.work_order_comments FOR ALL USING (
-        EXISTS (
-            SELECT 1 FROM public.work_orders w
-            WHERE w.id = work_order_comments.work_order_id
-              AND (
-                  public.is_super_admin()
-                  OR public.current_user_role_rank() >= 30
-                  OR w.assigned_to = public.current_profile_id()
-              )
-        )
-    );
-END IF; END $$;
-
--- ---------- VOTE RESPONSES ----------
-DO $$ BEGIN IF EXISTS (
-    SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='vote_responses'
-) THEN
-    DROP POLICY IF EXISTS vr_vote ON public.vote_responses;
-    CREATE POLICY vr_vote ON public.vote_responses FOR SELECT USING (
-        public.is_super_admin() OR public.current_user_role_rank() >= 90
-        OR profile_id = public.current_profile_id()
-    );
-    DROP POLICY IF EXISTS vr_insert ON public.vote_responses;
-    CREATE POLICY vr_insert ON public.vote_responses FOR INSERT WITH CHECK (
-        profile_id = public.current_profile_id()
-        OR resident_id IN (SELECT r.id FROM public.residents r WHERE r.profile_id = public.current_profile_id())
-    );
-END IF; END $$;
-
--- ---------- MESSAGES ----------
-DO $$ BEGIN IF EXISTS (
-    SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='messages'
-) THEN
-    DROP POLICY IF EXISTS msg_org ON public.messages;
-    CREATE POLICY msg_org ON public.messages FOR SELECT USING (
-        public.is_super_admin()
-        OR (
-            organization_id = public.current_user_organization_id()
-            AND (
-                sender_id = public.current_profile_id()
-                OR recipient_id = public.current_profile_id()
-                OR public.current_user_role_rank() >= 70
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='meeting_attendees') THEN
+        DROP POLICY IF EXISTS ma_meeting ON public.meeting_attendees;
+        CREATE POLICY ma_meeting ON public.meeting_attendees FOR ALL USING (
+            EXISTS (
+                SELECT 1 FROM public.meetings m
+                WHERE m.id = meeting_attendees.meeting_id
+                  AND (m.organization_id = public.current_user_organization_id()
+                       OR public.is_super_admin() OR public.current_user_role_rank() >= 70)
             )
-        )
-    );
-    DROP POLICY IF EXISTS msg_insert ON public.messages;
-    CREATE POLICY msg_insert ON public.messages FOR INSERT WITH CHECK (
-        sender_id = public.current_profile_id()
-        AND organization_id = public.current_user_organization_id()
-    );
-END IF; END $$;
+            OR profile_id = public.current_profile_id()
+            OR resident_id IN (SELECT r.id FROM public.residents r WHERE r.profile_id = public.current_profile_id())
+        );
+    END IF;
+END $$;
+
+-- ---------- VOTES ----------
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='votes') THEN
+        DROP POLICY IF EXISTS votes_select ON public.votes;
+        CREATE POLICY votes_select ON public.votes FOR SELECT USING (
+            public.is_super_admin()
+            OR organization_id = public.current_user_organization_id()
+        );
+        DROP POLICY IF EXISTS votes_write ON public.votes;
+        CREATE POLICY votes_write ON public.votes FOR ALL USING (
+            public.is_super_admin() OR public.current_user_role_rank() >= 90
+        ) WITH CHECK (
+            (public.is_super_admin() OR public.current_user_role_rank() >= 90)
+            AND organization_id = public.current_user_organization_id()
+        );
+    END IF;
+END $$;
+
+-- ---------- ACTIVITY LOGS ----------
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='activity_logs') THEN
+        DROP POLICY IF EXISTS logs_org_admin ON public.activity_logs;
+        CREATE POLICY logs_org_admin ON public.activity_logs FOR SELECT USING (
+            public.is_super_admin()
+            OR public.current_user_role_rank() >= 70
+            OR profile_id = public.current_profile_id()
+        );
+        -- Everyone within org can INSERT their own logs (used by use-crud.ts)
+        DROP POLICY IF EXISTS logs_insert ON public.activity_logs;
+        CREATE POLICY logs_insert ON public.activity_logs FOR INSERT WITH CHECK (
+            profile_id = public.current_profile_id()
+            OR organization_id = public.current_user_organization_id()
+        );
+    END IF;
+END $$;

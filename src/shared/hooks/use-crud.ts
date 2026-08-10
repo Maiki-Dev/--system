@@ -97,6 +97,7 @@ export function useTableInsert<T extends TableName>(
   return useMutation<unknown, PostgrestError, Record<string, unknown> & { logAction?: string }>({
     mutationFn: async (payload) => {
       const insert: Record<string, unknown> = { ...payload }
+      delete insert['logAction']
       if (organizationId && !insert.organization_id) insert.organization_id = organizationId
       if (user && !insert.created_by) insert.created_by = user.id
       const res = await supabase.from(table as string).insert(insert as never).select().single()
@@ -132,6 +133,7 @@ export function useTableUpdate<T extends TableName>(
   return useMutation<unknown, PostgrestError, { id: string; payload: Record<string, unknown>; logAction?: string }>({
     mutationFn: async ({ id, payload, logAction }) => {
       const update: Record<string, unknown> = { ...payload }
+      delete update['logAction']
       if (user) update.updated_by = user.id
       update.updated_at = new Date().toISOString()
       const res = await supabase
